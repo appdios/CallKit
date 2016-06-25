@@ -1,8 +1,5 @@
 //
 //  ADCallKitManager.m
-//  BoloMessenger
-//
-//  Created by Aditi Kamal on 6/16/16.
 //  Copyright © 2016 Appdios Inc. All rights reserved.
 //
 
