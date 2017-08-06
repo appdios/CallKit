@@ -32,7 +32,7 @@ static const NSInteger ADDefaultMaximumCallsPerCallGroup = 1;
 static const NSInteger ADDefaultMaximumCallGroups = 1;
 
 + (ADCallKitManager *)sharedInstance {
-	static ADCallKitManager *instance = nil;
+    static ADCallKitManager *instance = nil;
     static dispatch_once_t predicate;
     dispatch_once(&predicate, ^{
         instance = [[super allocWithZone:nil] init];
@@ -44,14 +44,11 @@ static const NSInteger ADDefaultMaximumCallGroups = 1;
     CXProviderConfiguration *configuration = [[CXProviderConfiguration alloc] initWithLocalizedName:appName];
     configuration.maximumCallGroups = ADDefaultMaximumCallGroups;
     configuration.maximumCallsPerCallGroup = ADDefaultMaximumCallsPerCallGroup;
+    configuration.supportedHandleTypes = [NSSet setWithObject:@(CXHandleTypePhoneNumber)];
     configuration.supportsVideo = supportsVideo;
     
     self.provider = [[CXProvider alloc] initWithConfiguration:configuration];
     [self.provider setDelegate:self queue:self.completionQueue ? self.completionQueue : dispatch_get_main_queue()];
-    
-    if (CXProvider.authorizationStatus == CXAuthorizationStatusNotDetermined) {
-        [self.provider requestAuthorization];
-    }
     
     self.callController = [[CXCallController alloc] initWithQueue:dispatch_get_main_queue()];
     self.actionNotificationBlock = actionNotificationBlock;
@@ -68,7 +65,8 @@ static const NSInteger ADDefaultMaximumCallGroups = 1;
     NSUUID *callUUID = [NSUUID UUID];
     
     CXCallUpdate *callUpdate = [[CXCallUpdate alloc] init];
-    callUpdate.callerIdentifier = [contact uniqueIdentifier];
+    CXHandle *handle = [[CXHandle alloc] initWithType:CXHandleTypePhoneNumber value:[contact phoneNumber]];
+    callUpdate.remoteHandle = handle;
     callUpdate.localizedCallerName = [contact displayName];
     [self.provider reportNewIncomingCallWithUUID:callUUID update:callUpdate completion:completion];
     return callUUID;
@@ -76,55 +74,54 @@ static const NSInteger ADDefaultMaximumCallGroups = 1;
 
 - (NSUUID *)reportOutgoingCallWithContact:(id<ADContactProtocol>)contact completion:(ADCallKitManagerCompletion)completion {
     NSUUID *callUUID = [NSUUID UUID];
+    CXHandle *handle = [[CXHandle alloc] initWithType:CXHandleTypePhoneNumber value:[contact phoneNumber]];
     
-    CXStartCallAction *action = [[CXStartCallAction alloc] initWithCallUUID:callUUID];
-    action.contactIdentifier = [contact uniqueIdentifier];
-    action.destination = [contact phoneNumber];
-
+    CXStartCallAction *action = [[CXStartCallAction alloc] initWithCallUUID:callUUID handle:handle];
+    action.contactIdentifier = [callUUID UUIDString];
+    
     [self.callController requestTransaction:[CXTransaction transactionWithActions:@[action]] completion:completion];
     return callUUID;
 }
 
 - (void)updateCall:(NSUUID *)callUUID state:(ADCallState)state {
-    switch (state) {
-        case ADCallStateConnecting:
-            [self.provider reportOutgoingCallWithUUID:callUUID startedConnectingAtDate:nil];
-            break;
-        case ADCallStateConnected:
-            [self.provider reportOutgoingCallWithUUID:callUUID connectedAtDate:nil];
-            break;
-        case ADCallStateEnded:
-            [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonRemoteEnded];
-            break;
-        case ADCallStateEndedWithFailure:
-            [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonFailed];
-            break;
-        case ADCallStateEndedUnanswered:
-            [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonUnanswered];
-            break;
-        default:
-            break;
+    if (callUUID) {
+        switch (state) {
+            case ADCallStateConnecting:
+                [self.provider reportOutgoingCallWithUUID:callUUID startedConnectingAtDate:nil];
+                break;
+            case ADCallStateConnected:
+                [self.provider reportOutgoingCallWithUUID:callUUID connectedAtDate:nil];
+                break;
+            case ADCallStateEnded:
+                [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonRemoteEnded];
+                break;
+            case ADCallStateEndedWithFailure:
+                [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonFailed];
+                break;
+            case ADCallStateEndedUnanswered:
+                [self.provider reportCallWithUUID:callUUID endedAtDate:nil reason:CXCallEndedReasonUnanswered];
+                break;
+            default:
+                break;
+        }
     }
 }
 
 - (void)mute:(BOOL)mute callUUID:(NSUUID *)callUUID completion:(ADCallKitManagerCompletion)completion {
-    CXSetMutedCallAction *action = [[CXSetMutedCallAction alloc] initWithCallUUID:callUUID];
-    action.muted = mute;
-    
+    CXSetMutedCallAction *action = [[CXSetMutedCallAction alloc] initWithCallUUID:callUUID muted:mute];
     [self.callController requestTransaction:[CXTransaction transactionWithActions:@[action]] completion:completion];
 }
 
 - (void)hold:(BOOL)hold callUUID:(NSUUID *)callUUID completion:(ADCallKitManagerCompletion)completion {
-    CXSetHeldCallAction *action = [[CXSetHeldCallAction alloc] initWithCallUUID:callUUID];
-    action.onHold = hold;
-    
+    CXSetHeldCallAction *action = [[CXSetHeldCallAction alloc] initWithCallUUID:callUUID onHold:hold];
     [self.callController requestTransaction:[CXTransaction transactionWithActions:@[action]] completion:completion];
 }
 
 - (void)endCall:(NSUUID *)callUUID completion:(ADCallKitManagerCompletion)completion {
-    CXEndCallAction *action = [[CXEndCallAction alloc] initWithCallUUID:callUUID];
-    
-    [self.callController requestTransaction:[CXTransaction transactionWithActions:@[action]] completion:completion];
+    if (callUUID) {
+        CXEndCallAction *action = [[CXEndCallAction alloc] initWithCallUUID:callUUID];
+        [self.callController requestTransaction:[CXTransaction transactionWithActions:@[action]] completion:completion];
+    }
 }
 
 #pragma mark - CXProviderDelegate
@@ -146,7 +143,7 @@ static const NSInteger ADDefaultMaximumCallGroups = 1;
     if (self.actionNotificationBlock) {
         self.actionNotificationBlock(action, ADCallActionTypeStart);
     }
-    if (action.destination) {
+    if (action.handle.value) {
         [action fulfill];
     } else {
         [action fail];
@@ -165,6 +162,10 @@ static const NSInteger ADDefaultMaximumCallGroups = 1;
         self.actionNotificationBlock(action, ADCallActionTypeHeld);
     }
     [action fulfill];
+}
+
+- (void)providerDidReset:(CXProvider *)provider {
+    
 }
 
 @end

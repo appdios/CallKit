@@ -30,7 +30,6 @@ typedef void(^ADCallKitActionNotificationBlock)(CXCallAction * action, ADCallAct
 
 @protocol ADContactProtocol <NSObject>
 
-- (NSString *)uniqueIdentifier;
 - (NSString *)displayName;
 - (NSString *)phoneNumber;
 
